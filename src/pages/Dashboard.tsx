@@ -27,10 +27,10 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { KPICard } from "@/components/shared/KPICard";
-import { SectionCard } from "@/components/shared/SectionCard";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { KpiCard as KPICard } from "@/components/common/KpiCard";
+import { SectionCard } from "@/components/common/SectionCard";
+import { StatusBadge } from "@/components/common/StatusBadge";
 
 // --- Data ---
 const chartData = [
@@ -77,6 +77,20 @@ const alertStyles: Record<string, string> = {
 const fmt = (v: number) =>
   new Intl.NumberFormat("pt-AO", { minimumFractionDigits: 0 }).format(v);
 
+const getStatusTone = (status: string): "success" | "warning" | "info" | "danger" => {
+  switch (status) {
+    case "Paga":
+    case "Pago":
+      return "success";
+    case "Pendente":
+      return "warning";
+    case "Vencida":
+      return "danger";
+    default:
+      return "info";
+  }
+};
+
 export default function Dashboard() {
   const navigate = useNavigate();
 
@@ -84,9 +98,8 @@ export default function Dashboard() {
     <div className="p-6 space-y-6">
       <PageHeader
         title="Dashboard"
-        subtitle="Bem-vindo ao sistema de gestão Duvion ERP. Visão geral consolidada."
-        icon={Activity}
-        actions={
+        description="Bem-vindo ao sistema de gestão Duvion ERP. Visão geral consolidada."
+        action={
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-success/30 bg-success/5 text-success font-bold text-[11px]">
             <Activity size={13} className="animate-pulse" /> SISTEMA OPERACIONAL
           </div>
@@ -95,10 +108,10 @@ export default function Dashboard() {
 
       {/* Main KPIs */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard title="Receitas (Mar)" value="67.0M AOA" icon={ArrowUpRight} change="+12.5%" trend="up" />
-        <KPICard title="Despesas (Mar)" value="44.0M AOA" icon={ArrowDownRight} change="+4.1%" trend="down" />
-        <KPICard title="Resultado Líquido" value="23.0M AOA" icon={DollarSign} change="+22.3%" trend="up" accent />
-        <KPICard title="Saldo em Caixa" value="39.1M AOA" icon={Wallet} change="+5.1%" trend="up" subtitle="≈ 46k USD" />
+        <KPICard label="Receitas (Mar)" value="67.0M AOA" icon={ArrowUpRight} change="+12.5%" trend="up" />
+        <KPICard label="Despesas (Mar)" value="44.0M AOA" icon={ArrowDownRight} change="+4.1%" trend="down" />
+        <KPICard label="Resultado Líquido" value="23.0M AOA" icon={DollarSign} change="+22.3%" trend="up" accent />
+        <KPICard label="Saldo em Caixa" value="39.1M AOA" icon={Wallet} change="+5.1%" trend="up" hint="≈ 46k USD" />
       </div>
 
       {/* Secondary KPIs */}
@@ -233,7 +246,7 @@ export default function Dashboard() {
                         <p className="text-[9px] font-bold text-muted-foreground">AOA</p>
                       </td>
                       <td className="p-4 text-center">
-                        <StatusBadge status={tx.status as any} />
+                        <StatusBadge label={tx.status} tone={getStatusTone(tx.status)} />
                       </td>
                     </tr>
                   ))}

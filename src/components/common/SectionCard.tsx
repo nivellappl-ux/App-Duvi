@@ -8,7 +8,7 @@ interface SectionCardProps {
 
 export function SectionCard({ title, subtitle, children, actions, noPadding }: SectionCardProps) {
     return (
-        <div className="rounded-lg overflow-hidden border border-border" style={{ backgroundColor: "#1A1A1A" }}>
+        <div className="rounded-lg overflow-hidden border border-border bg-card">
             <div className="px-6 py-4 border-b border-border flex items-center justify-between bg-card/30">
                 <div>
                     <h3 className="font-bold text-foreground">

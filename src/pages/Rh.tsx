@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import {
     Users,
     Search,
@@ -10,45 +11,29 @@ import {
     Shield,
     TrendingDown,
     ChevronRight,
-    Edit2
+    Edit2,
+    PlusCircle,
+    ArrowUpRight,
+    Building2,
+    Phone,
+    Mail,
+    UserPlus,
+    Briefcase,
+    Calendar
 } from "lucide-react";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { KPICard } from "@/components/shared/KPICard";
-import { SectionCard } from "@/components/shared/SectionCard";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataTable } from "@/components/common/DataTable";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { motion } from "framer-motion";
+import { toast } from "sonner";
+import CountUp from "react-countup";
+import { PermissionGate } from "@/components/auth/PermissionGate";
+import { Button } from "@/components/ui/button";
 
-// --- Types & Data ---
-interface Employee {
-    id: string;
-    nome: string;
-    cargo: string;
-    departamento: string;
-    salarioBase: number;
-    estado: "Ativo" | "Inativo" | "Licença";
-    dataAdmissao: string;
-    avatar: string;
-    email: string;
-    telefone: string;
-    inssStatus: "Regular" | "Irregular";
-    nif: string;
-}
-
-const EMPLOYEES: Employee[] = [
-    { id: "1", nome: "João Silva", cargo: "Diretor Geral", departamento: "Direção", salarioBase: 4500000, estado: "Ativo", dataAdmissao: "15/01/2020", avatar: "JS", email: "joao.silva@duvion.ao", telefone: "+244 923 000 001", inssStatus: "Regular", nif: "004123456TA000" },
-    { id: "2", nome: "Maria Santos", cargo: "Contabilista Sénior", departamento: "Financeiro", salarioBase: 1200000, estado: "Ativo", dataAdmissao: "03/03/2021", avatar: "MS", email: "maria.santos@duvion.ao", telefone: "+244 923 000 002", inssStatus: "Regular", nif: "004234567TA000" },
-    { id: "3", nome: "Pedro Costa", cargo: "Técnico de TI", departamento: "Tecnologia", salarioBase: 850000, estado: "Ativo", dataAdmissao: "10/07/2021", avatar: "PC", email: "pedro.costa@duvion.ao", telefone: "+244 923 000 003", inssStatus: "Regular", nif: "004345678TA000" },
-    { id: "4", nome: "Ana Mendes", cargo: "Gestora de RH", departamento: "RH", salarioBase: 1500000, estado: "Ativo", dataAdmissao: "22/05/2020", avatar: "AM", email: "ana.mendes@duvion.ao", telefone: "+244 923 000 004", inssStatus: "Regular", nif: "004456789TA000" },
-    { id: "5", nome: "Carlos Fernandes", cargo: "Comercial Sénior", departamento: "Comercial", salarioBase: 650000, estado: "Ativo", dataAdmissao: "01/09/2022", avatar: "CF", email: "carlos.fernandes@duvion.ao", telefone: "+244 923 000 005", inssStatus: "Regular", nif: "004567890TA000" },
-    { id: "6", nome: "Beatriz Lopes", cargo: "Gestora de Marketing", departamento: "Marketing", salarioBase: 950000, estado: "Licença", dataAdmissao: "15/11/2021", avatar: "BL", email: "beatriz.lopes@duvion.ao", telefone: "+244 923 000 006", inssStatus: "Regular", nif: "004678901TA000" },
-    { id: "7", nome: "Ricardo Gomes", cargo: "Operador", departamento: "Operações", salarioBase: 450000, estado: "Ativo", dataAdmissao: "20/02/2023", avatar: "RG", email: "ricardo.gomes@duvion.ao", telefone: "+244 923 000 007", inssStatus: "Regular", nif: "004789012TA000" },
-    { id: "8", nome: "Sofia Rodrigues", cargo: "Jurista Sénior", departamento: "Jurídico", salarioBase: 1800000, estado: "Ativo", dataAdmissao: "08/04/2020", avatar: "SR", email: "sofia.rodrigues@duvion.ao", telefone: "+244 923 000 008", inssStatus: "Regular", nif: "004890123TA000" },
-];
-
-const DEPARTMENTS = ["Todos", "Direção", "Financeiro", "Tecnologia", "RH", "Comercial", "Marketing", "Operações", "Jurídico"];
-
-// --- Helper Functions ---
+// --- Helper Functions (Angolan Tax Logic) ---
 const formatCurrency = (v: number) =>
-    new Intl.NumberFormat("pt-AO", { minimumFractionDigits: 0 }).format(v);
+    new Intl.NumberFormat("pt-AO", { style: "currency", currency: "AOA", minimumFractionDigits: 0 }).format(v);
 
 function calcIRT(salarioBruto: number): number {
     const escaloes = [
@@ -76,313 +61,254 @@ function calcSalario(salarioBase: number) {
     return { inssEmp, inssEmpr, irt, liquido, custoTotal: salarioBase + inssEmpr };
 }
 
-// --- Sub-components ---
-
-function EmployeeDetailPanel({ emp, onClose }: { emp: Employee; onClose: () => void }) {
-    const sal = calcSalario(emp.salarioBase);
-    return (
-        <div className="w-80 xl:w-96 flex-shrink-0 rounded-lg overflow-hidden border border-border bg-card animate-in slide-in-from-right-4 duration-300">
-            <div className="p-5 border-b border-border">
-                <div className="flex items-start justify-between">
-                    <div className="flex items-center gap-3">
-                        <div className="w-14 h-14 rounded-full bg-primary text-white flex items-center justify-center font-bold text-lg ring-4 ring-primary/10">
-                            {emp.avatar}
-                        </div>
-                        <div>
-                            <p className="text-foreground font-bold text-base leading-tight">{emp.nome}</p>
-                            <p className="text-muted-foreground text-xs">{emp.cargo}</p>
-                            <div className="mt-1">
-                                <StatusBadge status={emp.estado} />
-                            </div>
-                        </div>
-                    </div>
-                    <button onClick={onClose} className="p-1.5 rounded-md hover:bg-muted/50 text-muted-foreground transition-colors">
-                        <ChevronRight size={18} className="rotate-180" />
-                    </button>
-                </div>
-            </div>
-
-            <div className="p-5 space-y-6">
-                {/* Info Grid */}
-                <div className="space-y-2">
-                    {[
-                        { label: "Departamento", value: emp.departamento },
-                        { label: "NIF", value: emp.nif },
-                        { label: "Email", value: emp.email },
-                        { label: "Telefone", value: emp.telefone },
-                        { label: "Data Admissão", value: emp.dataAdmissao },
-                    ].map((f) => (
-                        <div key={f.label} className="flex justify-between items-center py-2 border-b border-border/50">
-                            <span className="text-[11px] text-muted-foreground uppercase tracking-wider font-bold">{f.label}</span>
-                            <span className="text-[13px] text-foreground font-medium text-right max-w-[60%] truncate">{f.value}</span>
-                        </div>
-                    ))}
-                </div>
-
-                {/* Salary Breakdown */}
-                <SectionCard title="FOLHA SALARIAL — MARÇO" noPadding>
-                    <div className="p-4 space-y-2">
-                        <div className="flex justify-between">
-                            <span className="text-xs text-muted-foreground">Salário Base</span>
-                            <span className="text-xs font-bold">{formatCurrency(emp.salarioBase)} AOA</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-xs text-muted-foreground">INSS Empregado (3%)</span>
-                            <span className="text-xs font-bold text-destructive">-{formatCurrency(sal.inssEmp)} AOA</span>
-                        </div>
-                        <div className="flex justify-between">
-                            <span className="text-xs text-muted-foreground">IRT Retido</span>
-                            <span className="text-xs font-bold text-destructive">-{formatCurrency(sal.irt)} AOA</span>
-                        </div>
-                        <div className="pt-2 mt-2 border-t border-border flex justify-between items-baseline">
-                            <span className="text-sm font-bold text-primary">Líquido</span>
-                            <span className="text-lg font-bold text-primary">{formatCurrency(sal.liquido)} AOA</span>
-                        </div>
-                    </div>
-                </SectionCard>
-
-                {/* Actions */}
-                <div className="space-y-2 pt-2">
-                    <button className="w-full flex items-center justify-center gap-2 py-3 rounded-md bg-primary text-white font-bold text-sm shadow-lg shadow-primary/20 hover:opacity-95 transition-opacity">
-                        <Download size={16} /> Gerar Recibo
-                    </button>
-                    <button className="w-full flex items-center justify-center gap-2 py-3 rounded-md border border-border text-muted-foreground font-bold text-sm hover:bg-muted/30 transition-colors">
-                        <Edit2 size={16} /> Editar Cadastro
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-// --- Main Page ---
-
 export default function Rh() {
+    const [employees, setEmployees] = useState<any[]>([]);
+    const [departments, setDepartments] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<"list" | "payroll">("list");
     const [selectedDept, setSelectedDept] = useState("Todos");
     const [searchTerm, setSearchTerm] = useState("");
-    const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
 
-    const filteredEmployees = useMemo(() => {
-        return EMPLOYEES.filter(emp => {
-            const matchDept = selectedDept === "Todos" || emp.departamento === selectedDept;
-            const matchSearch = emp.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                emp.cargo.toLowerCase().includes(searchTerm.toLowerCase());
+    useEffect(() => {
+        fetchData();
+    }, []);
+
+    const fetchData = async () => {
+        setIsLoading(true);
+        try {
+            const [empRes, deptRes] = await Promise.all([
+                supabase.from("employees").select("*, departments(name)").order("first_name"),
+                supabase.from("departments").select("*")
+            ]);
+
+            if (empRes.error) throw empRes.error;
+            if (deptRes.error) throw deptRes.error;
+
+            setEmployees(empRes.data || []);
+            setDepartments(deptRes.data || []);
+        } catch (error: any) {
+            toast.error("Erro ao carregar dados de RH: " + error.message);
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const stats = useMemo(() => {
+        const totalFolha = employees.reduce((s, e) => s + (Number(e.salary) || 0), 0);
+        const totalINSS = employees.reduce((s, e) => s + calcSalario(Number(e.salary) || 0).inssEmpr, 0);
+        const totalIRT = employees.reduce((s, e) => s + calcSalario(Number(e.salary) || 0).irt, 0);
+        const ativos = employees.filter(e => e.status === "Ativo").length;
+        return { totalFolha, totalINSS, totalIRT, ativos };
+    }, [employees]);
+
+    const filtered = useMemo(() => {
+        return employees.filter(emp => {
+            const name = `${emp.first_name} ${emp.last_name}`.toLowerCase();
+            const matchDept = selectedDept === "Todos" || emp.departments?.name === selectedDept;
+            const matchSearch = name.includes(searchTerm.toLowerCase()) ||
+                emp.position?.toLowerCase().includes(searchTerm.toLowerCase());
             return matchDept && matchSearch;
         });
-    }, [selectedDept, searchTerm]);
+    }, [employees, selectedDept, searchTerm]);
 
-    // Totals
-    const totalFolha = EMPLOYEES.reduce((s, e) => s + e.salarioBase, 0);
-    const totalINSS = EMPLOYEES.reduce((s, e) => s + calcSalario(e.salarioBase).inssEmpr, 0);
-    const totalIRT = EMPLOYEES.reduce((s, e) => s + calcSalario(e.salarioBase).irt, 0);
+    const columns = [
+        {
+            key: "first_name",
+            label: "Funcionário",
+            render: (_: any, row: any) => (
+                <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-bold text-[11px]">
+                        {row.first_name[0]}{row.last_name[0]}
+                    </div>
+                    <div className="flex flex-col">
+                        <span className="text-[13px] font-bold text-foreground">{row.first_name} {row.last_name}</span>
+                        <span className="text-[10px] text-muted-foreground uppercase">{row.departments?.name || 'Geral'}</span>
+                    </div>
+                </div>
+            )
+        },
+        { key: "position", label: "Cargo", render: (val: string) => <span className="text-xs font-medium text-muted-foreground">{val}</span> },
+        {
+            key: "salary",
+            label: "Salário Base",
+            render: (val: number) => <span className="font-bold">{formatCurrency(val)}</span>
+        },
+        {
+            key: "status",
+            label: "Estado",
+            render: (val: any) => (
+                <StatusBadge
+                    label={val}
+                    tone={val === "Ativo" ? "success" : val === "Licença" ? "warning" : "neutral"}
+                />
+            )
+        },
+        {
+            key: "ações",
+            label: "",
+            render: () => (
+                <PermissionGate permission="hr.manage">
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                        <Edit2 size={14} className="text-muted-foreground" />
+                    </Button>
+                </PermissionGate>
+            )
+        }
+    ];
 
     return (
         <div className="p-6 space-y-6">
             <PageHeader
-                icon={Users}
                 title="Recursos Humanos"
-                subtitle="Gestão de pessoal · INSS · IRT — Março 2025"
-                actions={
+                description="Gestão de colaboradores, processamento de salários e obrigações fiscais"
+                action={
                     <div className="flex gap-2">
-                        <button className="px-3 py-2 rounded-md border border-border text-xs font-bold text-muted-foreground hover:bg-muted/30 flex items-center gap-2">
-                            <Download size={14} /> Exportar
-                        </button>
-                        <button className="px-4 py-2 rounded-md bg-accent text-accent-foreground text-xs font-bold hover:opacity-90 flex items-center gap-2">
-                            <Plus size={16} /> Novo Funcionário
-                        </button>
+                        <Button variant="outline" size="sm" className="text-xs font-bold">
+                            <Briefcase size={14} className="mr-2" /> Estrutura
+                        </Button>
+                        <PermissionGate permission="hr.manage">
+                            <Button className="bg-primary text-white shadow-lg shadow-primary/20 text-xs font-bold">
+                                <PlusCircle size={14} className="mr-2" /> Admitir Colaborador
+                            </Button>
+                        </PermissionGate>
                     </div>
                 }
             />
 
-            {/* KPI Cards */}
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <KPICard title="Ativos" value={String(EMPLOYEES.filter(e => e.estado === "Ativo").length)} icon={UserCheck} change="+2 este ano" trend="up" />
-                <KPICard title="Folha Mensal" value={`${(totalFolha / 1000000).toFixed(1)}M AOA`} icon={DollarSign} change="+3.2%" trend="up" accent />
-                <KPICard title="INSS Total" value={`${(totalINSS / 1000000).toFixed(2)}M AOA`} icon={Shield} subtitle="Vence dia 10/04" />
-                <KPICard title="IRT Total" value={`${(totalIRT / 1000000).toFixed(2)}M AOA`} icon={TrendingDown} subtitle="Vence dia 10/04" />
+                <Card className="bg-card shadow-sm">
+                    <CardContent className="p-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <UserCheck className="text-success" size={16} />
+                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Ativos</span>
+                        </div>
+                        <h3 className="text-2xl font-bold"><CountUp end={stats.ativos} duration={1} /></h3>
+                    </CardContent>
+                </Card>
+                <Card className="bg-card shadow-sm">
+                    <CardContent className="p-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <DollarSign className="text-primary" size={16} />
+                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Folha Mensal</span>
+                        </div>
+                        <h3 className="text-2xl font-bold">{formatCurrency(stats.totalFolha)}</h3>
+                    </CardContent>
+                </Card>
+                <Card className="bg-card shadow-sm">
+                    <CardContent className="p-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <Shield className="text-warning" size={16} />
+                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">INSS Previsto</span>
+                        </div>
+                        <h3 className="text-2xl font-bold text-warning">{formatCurrency(stats.totalINSS)}</h3>
+                    </CardContent>
+                </Card>
+                <Card className="bg-card shadow-sm">
+                    <CardContent className="p-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <TrendingDown className="text-destructive" size={16} />
+                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">IRT Estimado</span>
+                        </div>
+                        <h3 className="text-2xl font-bold text-destructive">{formatCurrency(stats.totalIRT)}</h3>
+                    </CardContent>
+                </Card>
             </div>
 
-            {/* Tab Switcher */}
             <div className="flex border-b border-border">
-                {[
-                    { id: "list", label: "Funcionários" },
-                    { id: "payroll", label: "Processamento Salarial" }
-                ].map(tab => (
+                {[{ id: "list", label: "Funcionários" }, { id: "payroll", label: "Processamento" }].map(tab => (
                     <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id as any)}
-                        className={`px-6 py-4 text-xs font-bold uppercase tracking-widest transition-all relative ${activeTab === tab.id ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                        className={`px-6 py-4 text-[10px] font-bold uppercase tracking-widest transition-all relative ${activeTab === tab.id ? "text-primary" : "text-muted-foreground hover:text-foreground"
                             }`}
                     >
                         {tab.label}
-                        {activeTab === tab.id && (
-                            <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary shadow-[0_0_8px_rgba(37,99,235,0.5)]" />
-                        )}
+                        {activeTab === tab.id && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary shadow-[0_0_8px_rgba(37,99,235,0.5)]" />}
                     </button>
                 ))}
             </div>
 
             {activeTab === "list" ? (
-                <div className="flex flex-col lg:flex-row gap-6">
-                    <div className="flex-1 space-y-4">
-                        {/* Filters */}
-                        <div className="flex flex-wrap gap-4 items-center">
-                            <div className="relative flex-1 min-w-[240px]">
-                                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-                                <input
-                                    type="text"
-                                    placeholder="Pesquisar funcionário..."
-                                    value={searchTerm}
-                                    onChange={e => setSearchTerm(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2.5 rounded-lg border border-border bg-card text-sm font-medium focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-                                />
-                            </div>
-                            <div className="flex gap-2 p-1 rounded-lg bg-muted/20 border border-border">
-                                <button className="p-2 rounded-md hover:bg-muted/50 text-muted-foreground transition-all">
-                                    <Filter size={16} />
-                                </button>
-                            </div>
-                        </div>
-
-                        {/* Department Chips */}
+                <div className="space-y-4">
+                    <div className="flex flex-wrap gap-4 items-center justify-between">
                         <div className="flex flex-wrap gap-2">
-                            {DEPARTMENTS.map(dept => (
+                            <button
+                                onClick={() => setSelectedDept("Todos")}
+                                className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all border ${selectedDept === "Todos" ? "bg-primary border-primary text-white shadow-lg shadow-primary/10" : "bg-card border-border text-muted-foreground hover:border-primary/30"
+                                    }`}
+                            >
+                                TODOS
+                            </button>
+                            {departments.map(dept => (
                                 <button
-                                    key={dept}
-                                    onClick={() => setSelectedDept(dept)}
-                                    className={`px-4 py-1.5 rounded-full text-[11px] font-bold transition-all border ${selectedDept === dept
-                                            ? "bg-primary border-primary text-white shadow-lg shadow-primary/20"
-                                            : "bg-card border-border text-muted-foreground hover:border-primary/30"
+                                    key={dept.id}
+                                    onClick={() => setSelectedDept(dept.name)}
+                                    className={`px-4 py-1.5 rounded-full text-[10px] font-bold transition-all border ${selectedDept === dept.name ? "bg-primary border-primary text-white shadow-lg shadow-primary/10" : "bg-card border-border text-muted-foreground hover:border-primary/30"
                                         }`}
                                 >
-                                    {dept}
+                                    {dept.name.toUpperCase()}
                                 </button>
                             ))}
                         </div>
-
-                        {/* Table */}
-                        <div className="rounded-lg overflow-hidden border border-border bg-card">
-                            <div className="overflow-x-auto">
-                                <table className="w-full">
-                                    <thead>
-                                        <tr className="border-b-2 border-primary bg-muted/10">
-                                            <th className="text-left py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-wider">Funcionário</th>
-                                            <th className="text-left py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-wider">Cargo</th>
-                                            <th className="text-right py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-wider">Salário Base</th>
-                                            <th className="text-center py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-wider">Estado</th>
-                                            <th className="py-4 px-4"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-border/50">
-                                        {filteredEmployees.map((emp, i) => (
-                                            <tr
-                                                key={emp.id}
-                                                onClick={() => setSelectedEmployee(selectedEmployee?.id === emp.id ? null : emp)}
-                                                className={`group cursor-pointer transition-colors ${selectedEmployee?.id === emp.id ? "bg-primary/5" : (i % 2 === 0 ? "bg-transparent" : "bg-muted/5")
-                                                    } hover:bg-primary/10`}
-                                            >
-                                                <td className="py-4 px-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-[11px] transition-all ${selectedEmployee?.id === emp.id ? "bg-primary text-white" : "bg-primary/15 text-primary"
-                                                            }`}>
-                                                            {emp.avatar}
-                                                        </div>
-                                                        <span className="text-[13px] font-bold text-foreground">{emp.nome}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="py-4 px-4">
-                                                    <span className="text-[12px] text-muted-foreground font-medium">{emp.cargo}</span>
-                                                </td>
-                                                <td className="py-4 px-4 text-right">
-                                                    <span className="text-[13px] font-bold">{formatCurrency(emp.salarioBase)}</span>
-                                                    <span className="text-[10px] text-muted-foreground ml-1 font-bold">AOA</span>
-                                                </td>
-                                                <td className="py-4 px-4 text-center">
-                                                    <StatusBadge status={emp.estado} />
-                                                </td>
-                                                <td className="py-4 px-4 text-right">
-                                                    <ChevronRight
-                                                        size={14}
-                                                        className={`transition-all ${selectedEmployee?.id === emp.id ? "text-primary translate-x-1" : "text-muted-foreground/30"}`}
-                                                    />
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
-                            </div>
+                        <div className="relative w-full md:w-72">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
+                            <input
+                                placeholder="Pesquisar funcionário..."
+                                value={searchTerm}
+                                onChange={e => setSearchTerm(e.target.value)}
+                                className="w-full pl-9 h-9 border border-border rounded-lg bg-card text-xs focus:ring-2 focus:ring-primary/20 outline-none"
+                            />
                         </div>
                     </div>
 
-                    {/* Side Panel */}
-                    {selectedEmployee && (
-                        <EmployeeDetailPanel
-                            emp={selectedEmployee}
-                            onClose={() => setSelectedEmployee(null)}
-                        />
-                    )}
+                    <Card className="border-border shadow-md overflow-hidden">
+                        <CardContent className="p-0">
+                            <DataTable
+                                columns={columns as any}
+                                rows={filtered}
+                                isLoading={isLoading}
+                            />
+                        </CardContent>
+                    </Card>
                 </div>
             ) : (
-                <section className="animate-in fade-in duration-500">
-                    <SectionCard
-                        title="Folha de Pagamento Consolidada"
-                        subtitle="Valores processados com base nas tabelas de IRT e INSS vigentes."
-                        noPadding
-                        actions={
-                            <button className="px-3 py-1.5 rounded bg-primary text-white text-[11px] font-bold hover:opacity-90">
-                                <Download size={12} className="inline mr-1" /> PDF Completo
-                            </button>
-                        }
-                    >
-                        <div className="overflow-x-auto">
-                            <table className="w-full">
-                                <thead>
-                                    <tr className="border-b border-primary bg-muted/5">
-                                        <th className="text-left p-4 text-[10px] font-bold text-primary uppercase">Funcionário</th>
-                                        <th className="text-right p-4 text-[10px] font-bold text-primary uppercase">Salário Base</th>
-                                        <th className="text-right p-4 text-[10px] font-bold text-primary uppercase text-destructive">INSS (3%)</th>
-                                        <th className="text-right p-4 text-[10px] font-bold text-primary uppercase text-destructive">IRT</th>
-                                        <th className="text-right p-4 text-[10px] font-bold text-primary uppercase text-success">Líquido</th>
-                                        <th className="text-right p-4 text-[10px] font-bold text-primary uppercase">Custo Total</th>
-                                    </tr>
-                                </thead>
-                                <tbody className="divide-y divide-border/30">
-                                    {EMPLOYEES.map((emp, i) => {
-                                        const sal = calcSalario(emp.salarioBase);
-                                        return (
-                                            <tr key={emp.id} className={i % 2 === 0 ? "bg-transparent" : "bg-muted/5"}>
-                                                <td className="p-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[9px] font-bold">
-                                                            {emp.avatar}
-                                                        </div>
-                                                        <span className="text-[12px] font-bold">{emp.nome}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="p-4 text-right text-[12px] font-bold">{formatCurrency(emp.salarioBase)}</td>
-                                                <td className="p-4 text-right text-[12px] font-bold text-destructive">-{formatCurrency(sal.inssEmp)}</td>
-                                                <td className="p-4 text-right text-[12px] font-bold text-destructive">-{formatCurrency(sal.irt)}</td>
-                                                <td className="p-4 text-right text-[12px] font-bold text-success">{formatCurrency(sal.liquido)}</td>
-                                                <td className="p-4 text-right text-[12px] font-bold text-primary">{formatCurrency(sal.custoTotal)}</td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                                <tfoot className="bg-muted/20 border-t-2 border-primary">
-                                    <tr>
-                                        <td className="p-4 text-[11px] font-bold uppercase">Totais</td>
-                                        <td className="p-4 text-right text-[13px] font-bold">{formatCurrency(totalFolha)}</td>
-                                        <td className="p-4 text-right text-[13px] font-bold text-destructive">-{formatCurrency(EMPLOYEES.reduce((s, e) => s + calcSalario(e.salarioBase).inssEmp, 0))}</td>
-                                        <td className="p-4 text-right text-[13px] font-bold text-destructive">-{formatCurrency(totalIRT)}</td>
-                                        <td className="p-4 text-right text-[14px] font-bold text-success">{formatCurrency(EMPLOYEES.reduce((s, e) => s + calcSalario(e.salarioBase).liquido, 0))}</td>
-                                        <td className="p-4 text-right text-[14px] font-bold text-primary">{formatCurrency(totalFolha + EMPLOYEES.reduce((s, e) => s + calcSalario(e.salarioBase).inssEmpr, 0))}</td>
-                                    </tr>
-                                </tfoot>
-                            </table>
-                        </div>
-                    </SectionCard>
-                </section>
+                <Card className="border-border shadow-md overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-500">
+                    <CardHeader className="bg-muted/30 border-b p-4 flex flex-row items-center justify-between">
+                        <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground italic">Cálculo de IRT & INSS Atualizado</CardTitle>
+                        <Button variant="outline" size="sm" className="h-7 text-[10px] font-bold">
+                            <Download size={12} className="mr-1.5" /> PDF
+                        </Button>
+                    </CardHeader>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-[11px]">
+                            <thead>
+                                <tr className="border-b border-primary bg-primary/5">
+                                    <th className="text-left p-4 uppercase font-bold text-primary">Funcionário</th>
+                                    <th className="text-right p-4 uppercase font-bold text-primary">Base</th>
+                                    <th className="text-right p-4 uppercase font-bold text-destructive">INSS (3%)</th>
+                                    <th className="text-right p-4 uppercase font-bold text-destructive">IRT</th>
+                                    <th className="text-right p-4 uppercase font-bold text-success">Líquido</th>
+                                    <th className="text-right p-4 uppercase font-bold text-primary">Custo Co. (8%)</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/30">
+                                {filtered.map((emp, i) => {
+                                    const sal = calcSalario(Number(emp.salary) || 0);
+                                    return (
+                                        <tr key={emp.id} className={i % 2 === 0 ? "bg-transparent" : "bg-muted/5 hover:bg-primary/5 transition-colors"}>
+                                            <td className="p-4 font-bold">{emp.first_name} {emp.last_name}</td>
+                                            <td className="p-4 text-right font-medium">{formatCurrency(Number(emp.salary) || 0)}</td>
+                                            <td className="p-4 text-right text-destructive font-medium">-{formatCurrency(sal.inssEmp)}</td>
+                                            <td className="p-4 text-right text-destructive font-medium">-{formatCurrency(sal.irt)}</td>
+                                            <td className="p-4 text-right text-success font-bold">{formatCurrency(sal.liquido)}</td>
+                                            <td className="p-4 text-right font-medium">{formatCurrency(sal.custoTotal)}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
             )}
         </div>
     );

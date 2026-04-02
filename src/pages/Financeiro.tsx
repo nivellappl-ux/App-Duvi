@@ -1,4 +1,5 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import {
   TrendingUp,
   TrendingDown,
@@ -20,286 +21,219 @@ import {
   ResponsiveContainer,
   Legend,
 } from "recharts";
-import { KPICard } from "@/components/shared/KPICard";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { SectionCard } from "@/components/shared/SectionCard";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataTable } from "@/components/common/DataTable";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { motion } from "framer-motion";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { PermissionGate } from "@/components/auth/PermissionGate";
 
-// --- Data ---
-const chartData = [
-  { month: "Out", receitas: 42000000, despesas: 31000000 },
-  { month: "Nov", receitas: 48000000, despesas: 35000000 },
-  { month: "Dez", receitas: 55000000, despesas: 38000000 },
-  { month: "Jan", receitas: 45000000, despesas: 32000000 },
-  { month: "Fev", receitas: 52000000, despesas: 36000000 },
-  { month: "Mar", receitas: 67000000, despesas: 44000000 },
-];
-
-const receitas = [
-  { id: "REC-2025/0087", descricao: "Serviços de Consultoria — Sonangol", data: "28/03/2025", valor: 12500000, categoria: "Serviços", estado: "Recebido" },
-  { id: "REC-2025/0086", descricao: "Venda de Equipamentos — Unitel", data: "25/03/2025", valor: 8750000, categoria: "Vendas", estado: "Pendente" },
-  { id: "REC-2025/0085", descricao: "Contrato de Manutenção — BAI", data: "22/03/2025", valor: 15200000, categoria: "Serviços", estado: "Recebido" },
-  { id: "REC-2025/0084", descricao: "Consultoria Técnica — TAAG", data: "18/03/2025", valor: 9800000, categoria: "Serviços", estado: "Recebido" },
-  { id: "REC-2025/0083", descricao: "Fornecimento de Software — Angola Telecom", data: "15/03/2025", valor: 6300000, categoria: "Licenças", estado: "Recebido" },
-];
-
-const despesas = [
-  { id: "DES-2025/0043", descricao: "Salários — Março 2025", data: "31/03/2025", valor: 11900000, categoria: "RH", estado: "Pago" },
-  { id: "DES-2025/0042", descricao: "INSS Empregador — Março", data: "30/03/2025", valor: 952000, categoria: "Impostos", estado: "Pago" },
-  { id: "DES-2025/0041", descricao: "Aluguel Escritório — Abril", data: "01/04/2025", valor: 2500000, categoria: "Infraestrutura", estado: "Pendente" },
-  { id: "DES-2025/0040", descricao: "Fornecedor — Electro Services", data: "02/04/2025", valor: 8500000, categoria: "Fornecedores", estado: "Pendente" },
-  { id: "DES-2025/0039", descricao: "Material de Escritório", data: "20/03/2025", valor: 450000, categoria: "Administrativo", estado: "Pago" },
-];
-
-const categoriaColors: Record<string, string> = {
-  Serviços: "var(--primary)",
-  Vendas: "#10B981",
-  Licenças: "#3B82F6",
-  RH: "#8B5CF6",
-  Impostos: "#EF4444",
-  Infraestrutura: "#F59E0B",
-  Fornecedores: "#EC4899",
-  Administrativo: "#6B7280",
-};
-
-// --- Helpers ---
 const fmt = (v: number) =>
-  new Intl.NumberFormat("pt-AO", { minimumFractionDigits: 0 }).format(v);
+  new Intl.NumberFormat("pt-AO", { style: "currency", currency: "AOA", minimumFractionDigits: 0 }).format(v);
+
+const formatCurrency = fmt;
 
 export default function Financeiro() {
-  const [activeTab, setActiveTab] = useState<"receitas" | "despesas">("receitas");
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<"Entrada" | "Saída">("Entrada");
   const [search, setSearch] = useState("");
-  const [sortField, setSortField] = useState<"data" | "valor">("data");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
-  const totalReceitas = receitas.reduce((s, r) => s + r.valor, 0);
-  const totalDespesas = despesas.reduce((s, d) => s + d.valor, 0);
-  const lucro = totalReceitas - totalDespesas;
-  const margem = ((lucro / totalReceitas) * 100).toFixed(1);
+  useEffect(() => {
+    fetchData();
+  }, []);
 
-  const data = activeTab === "receitas" ? receitas : despesas;
+  const fetchData = async () => {
+    setIsLoading(true);
+    try {
+      const [transRes, bankRes] = await Promise.all([
+        supabase.from("transactions").select("*").order("transaction_date", { ascending: false }),
+        supabase.from("bank_accounts").select("*")
+      ]);
 
-  const filteredData = useMemo(() => {
-    return data
-      .filter((r) =>
-        r.descricao.toLowerCase().includes(search.toLowerCase()) ||
-        r.id.toLowerCase().includes(search.toLowerCase()) ||
-        r.categoria.toLowerCase().includes(search.toLowerCase())
-      )
-      .sort((a: any, b: any) => {
-        if (sortField === "valor") return sortDir === "asc" ? a.valor - b.valor : b.valor - a.valor;
-        return sortDir === "asc"
-          ? a.data.localeCompare(b.data)
-          : b.data.localeCompare(a.data);
-      });
-  }, [data, search, sortField, sortDir]);
+      if (transRes.error) throw transRes.error;
+      if (bankRes.error) throw bankRes.error;
 
-  const toggleSort = (field: "data" | "valor") => {
-    if (sortField === field) setSortDir(sortDir === "asc" ? "desc" : "asc");
-    else { setSortField(field); setSortDir("desc"); }
+      setTransactions(transRes.data || []);
+      setBankAccounts(bankRes.data || []);
+    } catch (error: any) {
+      toast.error("Erro ao carregar dados financeiros: " + error.message);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
+  const stats = useMemo(() => {
+    const totalReceitas = transactions.filter(t => t.type === "Entrada").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const totalDespesas = transactions.filter(t => t.type === "Saída").reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const saldo = totalReceitas - totalDespesas;
+    return { totalReceitas, totalDespesas, saldo };
+  }, [transactions]);
+
+  const chartData = useMemo(() => {
+    // Create a simplified monthly view (last 6 months)
+    // This is a placeholder for actual aggregation logic
+    return [
+      { month: "Jan", receitas: stats.totalReceitas * 0.7, despesas: stats.totalDespesas * 0.8 },
+      { month: "Fev", receitas: stats.totalReceitas * 0.8, despesas: stats.totalDespesas * 0.9 },
+      { month: "Mar", receitas: stats.totalReceitas, despesas: stats.totalDespesas },
+    ];
+  }, [stats]);
+
+  const filtered = useMemo(() => {
+    return transactions.filter((t) => {
+      const matchType = t.type === activeTab;
+      const matchSearch = t.description?.toLowerCase().includes(search.toLowerCase());
+      return matchType && matchSearch;
+    });
+  }, [transactions, activeTab, search]);
+
+  const columns = [
+    {
+      key: "transaction_date",
+      label: "Data",
+      render: (val: string) => new Date(val).toLocaleDateString()
+    },
+    {
+      key: "description",
+      label: "Descrição",
+      render: (val: string) => <span className="font-medium text-foreground">{val}</span>
+    },
+    {
+      key: "category",
+      label: "Categoria",
+      render: (val: string) => (
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-muted text-muted-foreground uppercase">
+          {val || 'Diversos'}
+        </span>
+      )
+    },
+    {
+      key: "amount",
+      label: "Valor",
+      render: (val: number, row: any) => (
+        <span className={`font-bold ${row.type === 'Entrada' ? 'text-success' : 'text-destructive'}`}>
+          {row.type === 'Entrada' ? '+' : '-'}{fmt(val)}
+        </span>
+      )
+    },
+    {
+      key: "status",
+      label: "Estado",
+      render: (val: any) => (
+        <StatusBadge
+          label={val || 'Concluído'}
+          tone={val === "Conciliado" ? "success" : "neutral"}
+        />
+      )
+    }
+  ];
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-6 space-y-6 pb-20">
       <PageHeader
-        icon={TrendingUp}
-        title="Financeiro"
-        subtitle="Controlo de receitas e despesas — Visão Consolidada"
-        actions={
-          <button className="flex items-center gap-2 px-4 py-2 rounded-md bg-primary text-white font-bold text-[13px] shadow-lg shadow-primary/20 hover:opacity-90 transition-all">
-            <Plus size={16} /> Novo Lançamento
-          </button>
+        title="Tesouraria & Finanças"
+        description="Controlo de caixa e movimentação bancária em tempo real"
+        action={
+          <PermissionGate permission="finance.manage">
+            <Button className="bg-primary text-white shadow-lg shadow-primary/20">
+              <Plus size={16} className="mr-2" /> Novo Lançamento
+            </Button>
+          </PermissionGate>
         }
       />
 
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <KPICard title="Receitas (Mar)" value={`${(totalReceitas / 1000000).toFixed(1)}M AOA`} icon={ArrowUpRight} change="+12.5%" trend="up" />
-        <KPICard title="Despesas (Mar)" value={`${(totalDespesas / 1000000).toFixed(1)}M AOA`} icon={ArrowDownRight} change="+4.1%" trend="down" />
-        <KPICard title="Resultado Líquido" value={`${(lucro / 1000000).toFixed(1)}M AOA`} icon={DollarSign} change="+22.3%" trend="up" accent />
-        <KPICard title="Margem Operacional" value={`${margem}%`} icon={TrendingUp} change="+3.2pp" trend="up" />
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <Card className="bg-card shadow-sm border-l-4 border-l-success">
+          <CardContent className="pt-6">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Receitas Acumuladas</p>
+            <h3 className="text-2xl font-bold text-success">{formatCurrency(stats.totalReceitas)}</h3>
+          </CardContent>
+        </Card>
+        <Card className="bg-card shadow-sm border-l-4 border-l-destructive">
+          <CardContent className="pt-6">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Despesas Realizadas</p>
+            <h3 className="text-2xl font-bold text-destructive">{formatCurrency(stats.totalDespesas)}</h3>
+          </CardContent>
+        </Card>
+        <Card className="bg-primary/5 border-primary/20">
+          <CardContent className="pt-6">
+            <p className="text-[10px] font-bold text-primary uppercase tracking-widest mb-1">Saldo em Caixa</p>
+            <h3 className="text-2xl font-bold text-primary">{formatCurrency(stats.saldo)}</h3>
+          </CardContent>
+        </Card>
+        <Card className="bg-card shadow-sm">
+          <CardContent className="pt-6">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest mb-1">Contas Bancárias</p>
+            <h3 className="text-2xl font-bold">{bankAccounts.length}</h3>
+          </CardContent>
+        </Card>
       </div>
 
-      {/* Chart */}
-      <SectionCard
-        title="Fluxo de Caixa Mensal"
-        subtitle="Histórico de receitas vs despesas consolidadas"
-        actions={
-          <button className="flex items-center gap-2 px-3 py-1.5 rounded-md border border-border text-xs font-bold text-muted-foreground hover:bg-muted/30">
-            <Download size={13} /> Exportar Relatório
-          </button>
-        }
-      >
-        <div className="h-80 w-full mt-4">
+      <Card className="border-border shadow-md overflow-hidden">
+        <CardHeader className="bg-muted/30 border-b p-4">
+          <CardTitle className="text-xs font-bold uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+            <DollarSign size={14} /> Fluxo de Caixa (Previsão 90 dias)
+          </CardTitle>
+        </CardHeader>
+        <div className="h-72 w-full p-4">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+            <AreaChart data={chartData}>
               <defs>
-                <linearGradient id="colorReceitas" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.15} />
+                <linearGradient id="colorRec" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="var(--primary)" stopOpacity={0.1} />
                   <stop offset="95%" stopColor="var(--primary)" stopOpacity={0} />
                 </linearGradient>
-                <linearGradient id="colorDespesas" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#EF4444" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#EF4444" stopOpacity={0} />
-                </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-              <XAxis
-                dataKey="month"
-                stroke="var(--text-muted)"
-                fontSize={12}
-                tickLine={false}
-                axisLine={false}
-                dy={10}
-              />
-              <YAxis
-                stroke="var(--text-muted)"
-                fontSize={10}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v) => `${(v / 1000000).toFixed(0)}M`}
-                dx={-10}
-              />
-              <Tooltip
-                contentStyle={{
-                  backgroundColor: "var(--card)",
-                  border: "1px solid var(--border)",
-                  borderRadius: "8px",
-                  boxShadow: "0 10px 15px -3px rgba(0,0,0,0.1)",
-                  fontSize: "12px",
-                  fontWeight: "bold"
-                }}
-                itemStyle={{ padding: "2px 0" }}
-                formatter={(value: number, name: string) => [`${fmt(value)} AOA`, name === "receitas" ? "Receitas" : "Despesas"]}
-              />
-              <Legend
-                verticalAlign="top"
-                align="right"
-                iconType="circle"
-                wrapperStyle={{ paddingBottom: "20px", fontSize: "11px", fontWeight: "bold" }}
-                formatter={(v) => v.toUpperCase()}
-              />
-              <Area
-                type="monotone"
-                dataKey="receitas"
-                stroke="var(--primary)"
-                strokeWidth={3}
-                fillOpacity={1}
-                fill="url(#colorReceitas)"
-                name="receitas"
-                animationDuration={1500}
-              />
-              <Area
-                type="monotone"
-                dataKey="despesas"
-                stroke="#EF4444"
-                strokeWidth={3}
-                fillOpacity={1}
-                fill="url(#colorDespesas)"
-                name="despesas"
-                animationDuration={1500}
-              />
+              <XAxis dataKey="month" stroke="var(--text-muted)" fontSize={11} axisLine={false} tickLine={false} />
+              <YAxis hide />
+              <Tooltip />
+              <Area type="monotone" dataKey="receitas" stroke="var(--primary)" fill="url(#colorRec)" strokeWidth={2} />
+              <Area type="monotone" dataKey="despesas" stroke="#EF4444" fill="transparent" strokeWidth={2} strokeDasharray="5 5" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
-      </SectionCard>
+      </Card>
 
-      {/* Transactions Table */}
       <div className="space-y-4">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-          <div className="flex border-b border-border w-full md:w-auto">
-            {(["receitas", "despesas"] as const).map((tab) => (
+          <div className="flex gap-2">
+            {(["Entrada", "Saída"] as const).map((tab) => (
               <button
                 key={tab}
                 onClick={() => setActiveTab(tab)}
-                className={`px-6 py-4 text-xs font-bold uppercase tracking-widest transition-all relative ${activeTab === tab ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                className={`px-6 py-2 text-[10px] font-bold uppercase tracking-widest transition-all rounded-lg border ${activeTab === tab ? "bg-primary text-white border-primary shadow-lg shadow-primary/10" : "bg-card text-muted-foreground border-border hover:border-primary/30"
                   }`}
               >
-                <span className="flex items-center gap-2">
-                  {tab === "receitas" ? <ArrowUpRight size={15} /> : <ArrowDownRight size={15} />}
-                  {tab}
-                </span>
-                {activeTab === tab && (
-                  <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary shadow-[0_0_8px_rgba(37,99,235,0.5)]" />
-                )}
+                {tab}
               </button>
             ))}
           </div>
 
-          <div className="flex items-center gap-2 w-full md:w-auto">
-            <div className="relative flex-1 md:w-64">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="Pesquisar lançamentos..."
-                className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-card text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-            </div>
-            <button className="p-2 rounded-lg border border-border text-muted-foreground hover:bg-muted/30">
-              <Filter size={16} />
-            </button>
+          <div className="relative w-full md:w-72">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
+            <Input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Filtre por descrição..."
+              className="pl-9 h-9 text-xs bg-background/50"
+            />
           </div>
         </div>
 
-        <div className="rounded-lg overflow-hidden border border-border bg-card shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b-2 border-primary bg-muted/10">
-                  <th className="text-left py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-wider">Referência</th>
-                  <th className="text-left py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-wider">Descrição</th>
-                  <th className="text-left py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-wider">Categoria</th>
-                  <th className="text-left py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-wider cursor-pointer hover:bg-primary/5" onClick={() => toggleSort("data")}>
-                    Data {sortField === "data" ? (sortDir === "asc" ? "↑" : "↓") : ""}
-                  </th>
-                  <th className="text-right py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-wider cursor-pointer hover:bg-primary/5" onClick={() => toggleSort("valor")}>
-                    Valor {sortField === "valor" ? (sortDir === "asc" ? "↑" : "↓") : ""}
-                  </th>
-                  <th className="text-center py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-wider">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/50">
-                {filteredData.map((row, i) => (
-                  <tr key={row.id} className={`group hover:bg-primary/5 transition-colors ${i % 2 === 0 ? 'bg-transparent' : 'bg-muted/5'}`}>
-                    <td className="py-4 px-4 text-[12px] font-bold text-primary">{row.id}</td>
-                    <td className="py-4 px-4 text-[13px] font-medium text-foreground">{row.descricao}</td>
-                    <td className="py-4 px-4">
-                      <span
-                        className="px-2.5 py-1 rounded text-[10px] font-bold"
-                        style={{
-                          backgroundColor: `${categoriaColors[row.categoria] || "#6B7280"}15`,
-                          color: categoriaColors[row.categoria] || "#6B7280",
-                        }}
-                      >
-                        {row.categoria.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4 text-[12px] text-muted-foreground font-medium">{row.data}</td>
-                    <td className="py-4 px-4 text-right">
-                      <span className="text-[13px] font-bold text-foreground">{fmt(row.valor)}</span>
-                      <span className="text-[10px] text-muted-foreground ml-1 font-bold">AOA</span>
-                    </td>
-                    <td className="py-4 px-4 text-center">
-                      <StatusBadge status={row.estado} />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot className="bg-muted/10 border-t border-border">
-                <tr>
-                  <td colSpan={4} className="px-4 py-3 text-[11px] font-bold text-muted-foreground uppercase">
-                    Total {activeTab}
-                  </td>
-                  <td className="px-4 py-3 text-right text-[14px] font-bold text-primary">
-                    {fmt(filteredData.reduce((s, r) => s + r.valor, 0))} AOA
-                  </td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
+        <Card className="border-border shadow-md overflow-hidden">
+          <CardContent className="p-0">
+            <DataTable
+              columns={columns as any}
+              rows={filtered}
+              isLoading={isLoading}
+            />
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

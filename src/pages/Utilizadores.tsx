@@ -40,7 +40,7 @@ export default function Utilizadores() {
       // Map to flatten roles
       const formatted = data.map(u => ({
         ...u,
-        perfil: u.user_roles?.[0]?.role || 'visualizador',
+        perfil: (u.user_roles as any)?.[0]?.role || 'visualizador',
         estado: u.suspended ? "Suspenso" : "Ativo"
       }));
 
@@ -99,17 +99,17 @@ export default function Utilizadores() {
       transition={{ duration: 0.4 }}
       className="space-y-6 pb-12"
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <PageHeader
-          title="Gestão de Utilizadores"
-          description="Controlo de acessos, perfis e permissões granulares da equipa enterprise."
-        />
-        <PermissionGate permission="user.create">
-          <Button className="bg-primary hover:bg-primary/90">
-            <Plus className="mr-2 h-4 w-4" /> Novo Utilizador
-          </Button>
-        </PermissionGate>
-      </div>
+      <PageHeader
+        title="Gestão de Utilizadores"
+        description="Controlo de acessos, perfis e permissões granulares da equipa enterprise."
+        action={
+          <PermissionGate permission="user.create">
+            <Button className="bg-primary hover:bg-primary/90">
+              <Plus className="mr-2 h-4 w-4" /> Novo Utilizador
+            </Button>
+          </PermissionGate>
+        }
+      />
 
       <Card className="border-border/70 bg-card/80 shadow-sm overflow-hidden">
         <CardHeader className="bg-muted/30 border-b">

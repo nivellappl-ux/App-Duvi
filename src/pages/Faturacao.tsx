@@ -1,231 +1,253 @@
-import { useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
+import { supabase } from "@/integrations/supabase/client";
 import {
     FileText,
-    Plus,
     Search,
-    Filter,
+    Plus,
     Download,
+    Filter,
+    MoreHorizontal,
     Eye,
-    Trash2,
-    ArrowUpRight,
+    Printer,
+    CheckCircle2,
     Clock,
+    AlertCircle,
+    TrendingUp,
+    Shield,
+    TrendingDown,
+    ChevronRight,
+    Edit2,
+    ArrowUpRight,
     CheckCircle,
-    AlertTriangle,
+    AlertTriangle
 } from "lucide-react";
-import { PageHeader } from "@/components/shared/PageHeader";
-import { SectionCard } from "@/components/shared/SectionCard";
-import { KPICard } from "@/components/shared/KPICard";
-import { StatusBadge } from "@/components/shared/StatusBadge";
+import { PageHeader } from "@/components/layout/PageHeader";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { DataTable } from "@/components/common/DataTable";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { motion } from "framer-motion";
+import { toast } from "sonner";
+import { PermissionGate } from "@/components/auth/PermissionGate";
 import { CreateInvoiceModal } from "@/components/faturacao/CreateInvoiceModal";
-import { InvoiceDetailModal } from "@/components/faturacao/InvoiceDetailModal";
 
-// --- Types & Data ---
-interface Invoice {
-    id: string;
-    serie: string;
-    cliente: string;
-    nif: string;
-    dataEmissao: string;
-    dataVencimento: string;
-    subtotal: number;
-    iva: number;
-    total: number;
-    estado: "Paga" | "Pendente" | "Vencida" | "Rascunho";
-    moeda: "AOA" | "USD";
-}
-
-const invoices: Invoice[] = [
-    { id: "FT 2025/245", serie: "FT", cliente: "Sonangol E.P.", nif: "5400012345", dataEmissao: "31/03/2025", dataVencimento: "30/04/2025", subtotal: 10964912, iva: 1535088, total: 12500000, estado: "Paga", moeda: "AOA" },
-    { id: "FT 2025/244", serie: "FT", cliente: "Unitel S.A.", nif: "5400067890", dataEmissao: "30/03/2025", dataVencimento: "29/04/2025", subtotal: 7675439, iva: 1074561, total: 8750000, estado: "Pendente", moeda: "AOA" },
-    { id: "FT 2025/243", serie: "FT", cliente: "BAI", nif: "5400098765", dataEmissao: "29/03/2025", dataVencimento: "28/04/2025", subtotal: 13333333, iva: 1866667, total: 15200000, estado: "Paga", moeda: "AOA" },
-    { id: "FT 2025/242", serie: "FT", cliente: "Angola Telecom", nif: "5400011111", dataEmissao: "28/03/2025", dataVencimento: "27/04/2025", subtotal: 5526316, iva: 773684, total: 6300000, estado: "Vencida", moeda: "AOA" },
-    { id: "FT 2025/241", serie: "FT", cliente: "TAAG", nif: "5400022222", dataEmissao: "27/03/2025", dataVencimento: "26/04/2025", subtotal: 8596491, iva: 1203509, total: 9800000, estado: "Paga", moeda: "AOA" },
-    { id: "FT 2025/240", serie: "FT", cliente: "BFA", nif: "5400033333", dataEmissao: "25/03/2025", dataVencimento: "24/04/2025", subtotal: 6140351, iva: 859649, total: 7000000, estado: "Pendente", moeda: "AOA" },
-    { id: "FT 2025/239", serie: "FT", cliente: "Endiama", nif: "5400044444", dataEmissao: "22/03/2025", dataVencimento: "21/04/2025", subtotal: 17543860, iva: 2456140, total: 20000000, estado: "Paga", moeda: "AOA" },
-    { id: "FT 2025/238", serie: "FT", cliente: "BIC", nif: "5400055555", dataEmissao: "20/03/2025", dataVencimento: "19/04/2025", subtotal: 4385965, iva: 614035, total: 5000000, estado: "Rascunho", moeda: "AOA" },
-];
-
-const BNA_RATE = 850;
 const fmt = (v: number) =>
-    new Intl.NumberFormat("pt-AO", { minimumFractionDigits: 0 }).format(v);
+    new Intl.NumberFormat("pt-AO", { style: "currency", currency: "AOA" }).format(v);
 
 export default function Faturacao() {
+    const [invoices, setInvoices] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [search, setSearch] = useState("");
     const [filterStatus, setFilterStatus] = useState<string>("Todos");
-    const [sortField, setSortField] = useState<"dataEmissao" | "total">("dataEmissao");
-    const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
     const [showCreate, setShowCreate] = useState(false);
-    const [selectedInvoice, setSelectedInvoice] = useState<Invoice | null>(null);
 
-    const stats = useMemo(() => {
-        const totalPago = invoices.filter((i) => i.estado === "Paga").reduce((s, i) => s + i.total, 0);
-        const totalPendente = invoices.filter((i) => i.estado === "Pendente").reduce((s, i) => s + i.total, 0);
-        const totalVencido = invoices.filter((i) => i.estado === "Vencida").reduce((s, i) => s + i.total, 0);
-        const totalEmitido = invoices.reduce((s, i) => s + i.total, 0);
-        return { totalPago, totalPendente, totalVencido, totalEmitido };
+    useEffect(() => {
+        fetchInvoices();
     }, []);
 
-    const filtered = useMemo(() => {
-        return invoices
-            .filter((inv) => {
-                const matchSearch =
-                    inv.id.toLowerCase().includes(search.toLowerCase()) ||
-                    inv.cliente.toLowerCase().includes(search.toLowerCase());
-                const matchStatus = filterStatus === "Todos" || inv.estado === filterStatus;
-                return matchSearch && matchStatus;
-            })
-            .sort((a: any, b: any) => {
-                if (sortField === "total") return sortDir === "asc" ? a.total - b.total : b.total - a.total;
-                return sortDir === "asc" ? a.dataEmissao.localeCompare(b.dataEmissao) : b.dataEmissao.localeCompare(a.dataEmissao);
-            });
-    }, [search, filterStatus, sortField, sortDir]);
+    const fetchInvoices = async () => {
+        setIsLoading(true);
+        try {
+            const { data, error } = await supabase
+                .from("invoices")
+                .select(`
+                    *,
+                    customers (
+                        name,
+                        nif
+                    )
+                `)
+                .order("created_at", { ascending: false });
 
-    const toggleSort = (f: "dataEmissao" | "total") => {
-        if (sortField === f) setSortDir(sortDir === "asc" ? "desc" : "asc");
-        else { setSortField(f); setSortDir("desc"); }
+            if (error) throw error;
+            setInvoices(data || []);
+        } catch (error: any) {
+            toast.error("Erro ao carregar faturas: " + error.message);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
-    return (
-        <div className="p-6 space-y-6">
-            <PageHeader
-                icon={FileText}
-                title="Faturação"
-                subtitle="Gestão de faturas AGT-compliant · Regime Geral — Março 2025"
-                actions={
-                    <div className="flex items-center gap-2">
-                        <button className="flex items-center gap-2 px-3 py-2 rounded-lg border border-border text-xs font-bold text-muted-foreground hover:bg-muted/30">
-                            <Download size={14} /> EXPORTAR
-                        </button>
-                        <button
-                            onClick={() => setShowCreate(true)}
-                            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white font-bold text-xs shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all"
-                        >
-                            <Plus size={16} /> NOVA FATURA
-                        </button>
-                    </div>
-                }
-            />
+    const stats = useMemo(() => {
+        const totalEmitido = invoices.reduce((s, i) => s + (Number(i.total_amount) || 0), 0);
+        const totalPago = invoices.filter(i => i.status === "Paga").reduce((s, i) => s + (Number(i.total_amount) || 0), 0);
+        const totalPendente = invoices.filter(i => i.status === "Pendente").reduce((s, i) => s + (Number(i.total_amount) || 0), 0);
+        const count = invoices.length;
+        return { totalEmitido, totalPago, totalPendente, count };
+    }, [invoices]);
 
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <KPICard title="Total Emitido" value={`${(stats.totalEmitido / 1000000).toFixed(1)}M AOA`} icon={FileText} change="+8.2%" trend="up" />
-                <KPICard title="Total Cobrado" value={`${(stats.totalPago / 1000000).toFixed(1)}M AOA`} icon={CheckCircle} change={`${invoices.filter(i => i.estado === "Paga").length} pagas`} trend="up" accent />
-                <KPICard title="Por Cobrar" value={`${(stats.totalPendente / 1000000).toFixed(1)}M AOA`} icon={Clock} change={`${invoices.filter(i => i.estado === "Pendente").length} pendentes`} trend="down" />
-                <KPICard title="Valor Vencido" value={`${(stats.totalVencido / 1000000).toFixed(1)}M AOA`} icon={AlertTriangle} change={`${invoices.filter(i => i.estado === "Vencida").length} vencidas`} trend="down" />
+    const filtered = useMemo(() => {
+        return invoices.filter((inv) => {
+            const matchSearch =
+                inv.invoice_number?.toLowerCase().includes(search.toLowerCase()) ||
+                inv.customers?.name?.toLowerCase().includes(search.toLowerCase());
+            const matchStatus = filterStatus === "Todos" || inv.status === filterStatus;
+            return matchSearch && matchStatus;
+        });
+    }, [invoices, search, filterStatus]);
+
+    const columns = [
+        {
+            key: "invoice_number",
+            label: "Série / ID",
+            render: (val: string) => <span className="font-bold text-primary">{val || 'Rascunho'}</span>
+        },
+        {
+            key: "customer",
+            label: "Cliente",
+            render: (_: any, row: any) => (
+                <div className="flex flex-col">
+                    <span className="font-bold">{row.customers?.name || 'Venda a Dinheiro'}</span>
+                    <span className="text-[10px] text-muted-foreground uppercase">NIF: {row.customers?.nif || '---'}</span>
+                </div>
+            )
+        },
+        {
+            key: "issue_date",
+            label: "Emissão",
+            render: (val: string) => new Date(val).toLocaleDateString()
+        },
+        {
+            key: "total_amount",
+            label: "Total Bruto",
+            render: (val: number) => <span className="font-bold">{fmt(val)}</span>
+        },
+        {
+            key: "status",
+            label: "Estado",
+            render: (val: any) => (
+                <StatusBadge
+                    label={val}
+                    tone={val === "Paga" ? "success" : val === "Pendente" ? "warning" : val === "Vencida" ? "danger" : "neutral"}
+                />
+            )
+        },
+        {
+            key: "ações",
+            label: "",
+            render: (row: any) => (
+                <div className="flex items-center justify-end gap-2">
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                        <Eye size={14} />
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-primary">
+                        <Download size={14} />
+                    </Button>
+                </div>
+            )
+        }
+    ];
+
+    return (
+        <motion.section
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="space-y-6 pb-12"
+        >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <PageHeader
+                    title="Faturação & Vendas"
+                    description="Gestão de faturas, proformas e notas de crédito AGT-compliant"
+                    action={
+                        <PermissionGate permission="invoice.create">
+                            <Button
+                                className="bg-primary text-white shadow-lg shadow-primary/20"
+                                onClick={() => setShowCreate(true)}
+                            >
+                                <Plus size={16} className="mr-2" /> Emitir Fatura
+                            </Button>
+                        </PermissionGate>
+                    }
+                />
             </div>
 
-            <div className="space-y-4">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                    <div className="flex border-b border-border w-full md:w-auto">
-                        {["Todos", "Paga", "Pendente", "Vencida", "Rascunho"].map((status) => (
-                            <button
-                                key={status}
-                                onClick={() => setFilterStatus(status)}
-                                className={`px-5 py-4 text-[10px] font-bold uppercase tracking-[1.5px] transition-all relative ${filterStatus === status ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                                    }`}
-                            >
-                                {status}
-                                {filterStatus === status && (
-                                    <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary shadow-[0_0_8px_rgba(37,99,235,0.5)]" />
-                                )}
-                            </button>
-                        ))}
-                    </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <Card className="bg-card shadow-sm">
+                    <CardContent className="pt-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <FileText className="text-muted-foreground" size={16} />
+                            <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Total Emitido</span>
+                        </div>
+                        <h3 className="text-2xl font-bold">{fmt(stats.totalEmitido)}</h3>
+                    </CardContent>
+                </Card>
+                <Card className="bg-success/5 border-success/20">
+                    <CardContent className="pt-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <CheckCircle className="text-success" size={16} />
+                            <span className="text-[10px] font-bold text-success uppercase tracking-widest">Total Cobrado</span>
+                        </div>
+                        <h3 className="text-2xl font-bold text-success">{fmt(stats.totalPago)}</h3>
+                    </CardContent>
+                </Card>
+                <Card className="bg-warning/5 border-warning/20">
+                    <CardContent className="pt-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <Clock className="text-warning" size={16} />
+                            <span className="text-[10px] font-bold text-warning uppercase tracking-widest">Pendente</span>
+                        </div>
+                        <h3 className="text-2xl font-bold text-warning">{fmt(stats.totalPendente)}</h3>
+                    </CardContent>
+                </Card>
+                <Card className="bg-primary/5 border-primary/20">
+                    <CardContent className="pt-6">
+                        <div className="flex items-center justify-between mb-2">
+                            <ArrowUpRight className="text-primary" size={16} />
+                            <span className="text-[10px] font-bold text-primary uppercase tracking-widest">Volume (Docs)</span>
+                        </div>
+                        <h3 className="text-2xl font-bold text-primary">{stats.count}</h3>
+                    </CardContent>
+                </Card>
+            </div>
 
-                    <div className="flex items-center gap-2 w-full md:w-auto">
-                        <div className="relative flex-1 md:w-64">
-                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={14} />
-                            <input
+            <Card className="border-border/70 bg-card/80 shadow-md overflow-hidden">
+                <CardHeader className="bg-muted/30 border-b pb-4">
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                        <div className="flex gap-2">
+                            {["Todos", "Paga", "Pendente", "Vencida"].map((s) => (
+                                <button
+                                    key={s}
+                                    onClick={() => setFilterStatus(s)}
+                                    className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider transition-all ${filterStatus === s ? "bg-primary text-white" : "bg-muted text-muted-foreground hover:bg-muted/70"
+                                        }`}
+                                >
+                                    {s}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="relative w-full md:w-72">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                            <Input
                                 value={search}
                                 onChange={(e) => setSearch(e.target.value)}
-                                placeholder="Pesquisar faturas..."
-                                className="w-full pl-9 pr-4 py-2 rounded-lg border border-border bg-card text-xs font-medium focus:outline-none focus:ring-2 focus:ring-primary/20"
+                                placeholder="Pesquisar faturas ou clientes..."
+                                className="pl-9 h-9 text-xs bg-background/50"
                             />
                         </div>
-                        <button className="p-2 rounded-lg border border-border text-muted-foreground hover:bg-muted/30">
-                            <Filter size={16} />
-                        </button>
                     </div>
-                </div>
+                </CardHeader>
+                <CardContent className="pt-6">
+                    <DataTable
+                        columns={columns as any}
+                        rows={filtered}
+                        isLoading={isLoading}
+                    />
+                </CardContent>
+            </Card>
 
-                <div className="rounded-xl overflow-hidden border border-border bg-card shadow-sm">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead>
-                                <tr className="border-b-2 border-primary bg-muted/10">
-                                    <th className="py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-widest">Série/ID</th>
-                                    <th className="py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-widest">Cliente</th>
-                                    <th className="py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-widest cursor-pointer hover:bg-primary/5" onClick={() => toggleSort("dataEmissao")}>
-                                        Emissão {sortField === "dataEmissao" ? (sortDir === "asc" ? "↑" : "↓") : ""}
-                                    </th>
-                                    <th className="py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-widest cursor-pointer hover:bg-primary/5" onClick={() => toggleSort("total")}>
-                                        Total Bruto {sortField === "total" ? (sortDir === "asc" ? "↑" : "↓") : ""}
-                                    </th>
-                                    <th className="py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-widest text-center">Estado</th>
-                                    <th className="py-4 px-4 text-[10px] font-bold text-primary uppercase tracking-widest text-right">Ações</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border/50">
-                                {filtered.map((inv, i) => (
-                                    <tr
-                                        key={inv.id}
-                                        onClick={() => setSelectedInvoice(inv)}
-                                        className={`group cursor-pointer transition-colors hover:bg-primary/5 ${i % 2 === 0 ? 'bg-transparent' : 'bg-muted/5'}`}
-                                    >
-                                        <td className="py-4 px-4">
-                                            <p className="text-[12px] font-bold text-primary">{inv.id}</p>
-                                            <p className="text-[9px] font-bold text-muted-foreground uppercase">{inv.serie} 2025</p>
-                                        </td>
-                                        <td className="py-4 px-4">
-                                            <p className="text-[13px] font-bold text-foreground">{inv.cliente}</p>
-                                            <p className="text-[11px] text-muted-foreground">NIF: {inv.nif}</p>
-                                        </td>
-                                        <td className="py-4 px-4 text-[12px] font-medium text-muted-foreground">
-                                            {inv.dataEmissao}
-                                        </td>
-                                        <td className="py-4 px-4">
-                                            <p className="text-[13px] font-bold text-foreground">{fmt(inv.total)} AOA</p>
-                                            <p className="text-[10px] font-bold text-muted-foreground">≈ {fmt(inv.total / BNA_RATE)} USD</p>
-                                        </td>
-                                        <td className="py-4 px-4 text-center">
-                                            <StatusBadge status={inv.estado} />
-                                        </td>
-                                        <td className="py-4 px-4 text-right">
-                                            <div className="flex items-center justify-end gap-1 opacity-40 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
-                                                <button onClick={() => setSelectedInvoice(inv)} className="p-2 rounded-lg hover:bg-primary/10 text-primary transition-colors">
-                                                    <Eye size={14} />
-                                                </button>
-                                                <button className="p-2 rounded-lg hover:bg-primary/10 text-primary transition-colors">
-                                                    <Download size={14} />
-                                                </button>
-                                                {inv.estado === "Rascunho" && (
-                                                    <button className="p-2 rounded-lg hover:bg-destructive/10 text-destructive transition-colors">
-                                                        <Trash2 size={14} />
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-
-            {/* Compliance Banner */}
             <div className="p-5 rounded-xl border border-primary/20 bg-primary/5 flex items-start gap-4">
-                <ArrowUpRight size={18} className="text-primary shrink-0 mt-0.5" />
+                <AlertTriangle size={18} className="text-primary shrink-0 mt-0.5" />
                 <div>
-                    <p className="text-[12px] font-bold text-primary uppercase tracking-widest mb-1">AGT COMPLIANCE · REGIME GERAL</p>
-                    <p className="text-[12px] text-muted-foreground leading-relaxed">
-                        As faturas são emitidas seguindo o regime geral de IVA (14%). Certifique-se de que todos os dados do cliente (NIF e Denominação) estão corretos para garantir a validade fiscal dos documentos.
-                        Próxima série disponível: <span className="text-foreground font-bold font-mono">FT 2025/246</span>.
+                    <p className="text-[11px] font-bold text-primary uppercase tracking-widest mb-1">AGT COMPLIANCE · REGIME GERAL</p>
+                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                        Sistema certificado para o mercado angolano. A numeração das faturas é sequencial e irreversível por ano fiscal.
+                        A anulação de documentos requer motivo justificado no log de auditoria.
                     </p>
                 </div>
             </div>
 
-            {showCreate && <CreateInvoiceModal onClose={() => setShowCreate(false)} />}
-            {selectedInvoice && <InvoiceDetailModal invoice={selectedInvoice} onClose={() => setSelectedInvoice(null)} />}
-        </div>
+            {showCreate && <CreateInvoiceModal onClose={() => setShowCreate(false)} onRefresh={fetchInvoices} />}
+        </motion.section>
     );
 }

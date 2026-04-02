@@ -11,10 +11,12 @@ type Column<T> = {
 export function DataTable<T extends Record<string, any>>({
   columns,
   rows,
+  isLoading = false,
   enableSelection = false,
 }: {
   columns: Column<T>[];
   rows: T[];
+  isLoading?: boolean;
   enableSelection?: boolean;
 }) {
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
@@ -57,7 +59,19 @@ export function DataTable<T extends Record<string, any>>({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((row, idx) => (
+          {isLoading ? (
+            <TableRow>
+              <TableCell
+                colSpan={columns.length + (enableSelection ? 1 : 0)}
+                className="h-24 text-center"
+              >
+                <div className="flex items-center justify-center gap-2 text-muted-foreground animate-pulse">
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary" />
+                  Carregando dados...
+                </div>
+              </TableCell>
+            </TableRow>
+          ) : rows.map((row, idx) => (
             <TableRow key={idx} data-state={selectedRows.has(idx) ? "selected" : undefined}>
               {enableSelection && (
                 <TableCell className="text-center">
@@ -75,7 +89,7 @@ export function DataTable<T extends Record<string, any>>({
               ))}
             </TableRow>
           ))}
-          {rows.length === 0 && (
+          {!isLoading && rows.length === 0 && (
             <TableRow>
               <TableCell
                 colSpan={columns.length + (enableSelection ? 1 : 0)}
