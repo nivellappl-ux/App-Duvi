@@ -25,19 +25,22 @@ interface MenuItem {
     label: string;
     path: string;
     group?: string;
+    permission?: string;
 }
 
 const menuItems: MenuItem[] = [
     { icon: LayoutDashboard, label: "Dashboard", path: "/", group: "principal" },
-    { icon: TrendingUp, label: "Financeiro", path: "/financeiro", group: "financas" },
-    { icon: BookOpen, label: "Diário de Caixa", path: "/diario-caixa", group: "financas" },
-    { icon: Wallet, label: "Tesouraria", path: "/tesouraria", group: "financas" },
-    { icon: Building2, label: "Conta Bancária", path: "/contas", group: "financas" },
+    { icon: TrendingUp, label: "Financeiro", path: "/financeiro", group: "financas", permission: "finance.view" },
+    { icon: BookOpen, label: "Diário de Caixa", path: "/diario-caixa", group: "financas", permission: "finance.view" },
+    { icon: Wallet, label: "Tesouraria", path: "/tesouraria", group: "financas", permission: "finance.view" },
+    { icon: Building2, label: "Conta Bancária", path: "/contas", group: "financas", permission: "finance.view" },
     { icon: FileText, label: "Faturação", path: "/faturacao", group: "comercial" },
-    { icon: Users, label: "Recursos Humanos", path: "/rh", group: "operacoes" },
-    { icon: Layers, label: "Plafond", path: "/plafond", group: "operacoes" },
+    { icon: Users, label: "Recursos Humanos", path: "/rh", group: "operacoes", permission: "hr.view" },
+    { icon: Layers, label: "Plafond", path: "/plafond", group: "operacoes", permission: "hr.view" },
     { icon: Shield, label: "Fiscalidade", path: "/fiscalidade", group: "fiscal" },
-    { icon: Settings, label: "Configurações", path: "/configuracoes", group: "sistema" },
+    { icon: Shield, label: "Aprovações", path: "/aprovacoes", group: "sistema", permission: "finance.approve" },
+    { icon: Users, label: "Utilizadores", path: "/admin/utilizadores", group: "sistema", permission: "user.view" },
+    { icon: Settings, label: "Configurações", path: "/configuracoes", group: "sistema", permission: "user.view" },
 ];
 
 const groupLabels: Record<string, string> = {
@@ -58,23 +61,31 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
     const navigate = useNavigate();
     const location = useLocation();
     const { isDark, setDark, setLight } = useTheme();
-    const { user, logout } = useAuth();
+    const { profile, hasPermission, logout } = useAuth();
 
     const isActive = (path: string) => {
         if (path === "/") return location.pathname === "/";
         return location.pathname.startsWith(path);
     };
 
-    const groupedItems = menuItems.reduce<Record<string, MenuItem[]>>((acc, item) => {
+    // Filter items based on permissions
+    const filteredItems = menuItems.filter(item => !item.permission || hasPermission(item.permission));
+
+    const groupedItems = filteredItems.reduce<Record<string, MenuItem[]>>((acc, item) => {
         const g = item.group || "other";
         if (!acc[g]) acc[g] = [];
         acc[g].push(item);
         return acc;
     }, {});
 
-    const handleLogout = () => {
-        logout();
+    const handleLogout = async () => {
+        await logout();
         navigate("/login");
+    };
+
+    const getInitials = (name?: string) => {
+        if (!name) return "U";
+        return name.split(" ").map(n => n[0]).join("").toUpperCase().substring(0, 2);
     };
 
     return (
@@ -149,11 +160,11 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             <div className="border-t p-4" style={{ borderColor: "var(--border)" }}>
                 <div className="flex items-center gap-3 p-3 rounded-lg mb-2 bg-muted/30">
                     <div className="w-9 h-9 rounded-full flex items-center justify-center bg-primary text-white font-bold text-xs ring-2 ring-primary/20">
-                        {user?.avatar}
+                        {getInitials(profile?.full_name)}
                     </div>
                     <div className="flex-1 min-w-0">
-                        <p className="text-[13px] font-bold text-foreground truncate">{user?.name}</p>
-                        <p className="text-[10px] text-muted-foreground truncate">{user?.role}</p>
+                        <p className="text-[13px] font-bold text-foreground truncate">{profile?.full_name || "Utilizador"}</p>
+                        <p className="text-[10px] text-muted-foreground truncate italic">Logado no Duvion</p>
                     </div>
                 </div>
                 <button

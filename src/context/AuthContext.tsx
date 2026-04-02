@@ -1,54 +1,119 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { User, Session } from "@supabase/supabase-js";
 
-interface User {
+interface Profile {
     id: string;
-    name: string;
-    role: string;
-    email: string;
-    avatar: string;
+    full_name: string;
+    must_change_password: boolean;
+    suspended: boolean;
 }
 
 interface AuthContextValue {
     user: User | null;
+    profile: Profile | null;
+    roles: string[];
+    permissions: string[];
     isAuthenticated: boolean;
-    login: (email: string, pass: string) => Promise<void>;
-    logout: () => void;
+    isLoading: boolean;
+    hasPermission: (permission: string) => boolean;
+    hasRole: (role: string) => boolean;
+    logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const MOCK_USER: User = {
-    id: "1",
-    name: "João Silva",
-    role: "Administrador",
-    email: "joao.silva@duvion.ao",
-    avatar: "JS"
-};
-
 export function AuthProvider({ children }: { children: ReactNode }) {
-    const [user, setUser] = useState<User | null>(() => {
-        try {
-            const saved = localStorage.getItem("duvion-user");
-            return saved ? JSON.parse(saved) : null;
-        } catch (e) {
-            console.error("Failed to parse user from local storage", e);
-            return null;
-        }
-    });
+    const [user, setUser] = useState<User | null>(null);
+    const [profile, setProfile] = useState<Profile | null>(null);
+    const [roles, setRoles] = useState<string[]>([]);
+    const [permissions, setPermissions] = useState<string[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
-    const login = async (email: string, pass: string) => {
-        // Basic mock login
-        localStorage.setItem("duvion-user", JSON.stringify(MOCK_USER));
-        setUser(MOCK_USER);
+    useEffect(() => {
+        // 1. Check initial session
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            handleSession(session);
+        });
+
+        // 2. Listen for auth changes
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            handleSession(session);
+        });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    const handleSession = async (session: Session | null) => {
+        if (session?.user) {
+            setUser(session.user);
+            await fetchUserData(session.user.id);
+        } else {
+            setUser(null);
+            setProfile(null);
+            setRoles([]);
+            setPermissions([]);
+        }
+        setIsLoading(false);
     };
 
-    const logout = () => {
-        localStorage.removeItem("duvion-user");
-        setUser(null);
+    const fetchUserData = async (userId: string) => {
+        try {
+            // Fetch Profile
+            const { data: prof } = await supabase
+                .from("profiles")
+                .select("*")
+                .eq("user_id", userId)
+                .single();
+
+            setProfile(prof);
+
+            // Fetch Roles
+            const { data: rls } = await supabase
+                .from("user_roles")
+                .select("role")
+                .eq("user_id", userId);
+
+            const roleNames = rls?.map(r => r.role) || [];
+            setRoles(roleNames);
+
+            // Fetch Permissions (Granular RBAC)
+            // Note: This requires the role_permissions mapping
+            const { data: perms } = await supabase
+                .from("role_permissions")
+                .select("permission_name")
+                .in("role", roleNames);
+
+            setPermissions(perms?.map(p => p.permission_name) || []);
+        } catch (error) {
+            console.error("Error fetching enterprise user data:", error);
+        }
+    };
+
+    const hasPermission = (permission: string) => {
+        return permissions.includes(permission) || roles.includes("super_admin");
+    };
+
+    const hasRole = (role: string) => {
+        return roles.includes(role);
+    };
+
+    const logout = async () => {
+        await supabase.auth.signOut();
     };
 
     return (
-        <AuthContext.Provider value={{ user, isAuthenticated: !!user, login, logout }}>
+        <AuthContext.Provider value={{
+            user,
+            profile,
+            roles,
+            permissions,
+            isAuthenticated: !!user,
+            isLoading,
+            hasPermission,
+            hasRole,
+            logout
+        }}>
             {children}
         </AuthContext.Provider>
     );
